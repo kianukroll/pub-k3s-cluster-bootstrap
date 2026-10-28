@@ -57,6 +57,19 @@
     cmd: /usr/local/bin/helm repo update
   changed_when: false
 
+- name: Apply Argo CD CRDs via Server-Side Apply to bypass size limits
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/kubectl
+      - apply
+      - -k
+      - 'https://github.com/argoproj/argo-cd//manifests/crds?ref={{ argocd_crd_version }}'
+      - --server-side=true
+      - --force-conflicts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: true
+
 - name: Install or upgrade Argo CD
   ansible.builtin.command:
     argv:
@@ -70,7 +83,6 @@
       - --create-namespace
       - --version
       - '{{ argocd_chart_version }}'
-      - server-side=true
       - --set-string
       - 'configs.secret.argocdServerAdminPassword={{ argocd_admin_password_hash }}'
       - --set-string
