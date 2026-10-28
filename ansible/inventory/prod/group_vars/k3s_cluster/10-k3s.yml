@@ -1,5 +1,5 @@
 ---
-k3s_version: v1.36.2+k3s1
+k3s_version: v1.37.1+k3s1
 k3s_flannel_interface: nebula1
 k3s_config_dir: /etc/rancher/k3s
 gomemlimit: 1200MiB
