@@ -1,5 +1,5 @@
 ---
-argocd_helm_version: 3.19.0
+argocd_helm_version: 4.3.1
 argocd_helm_architecture: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
 argocd_chart_version: 9.1.6
 argocd_admin_password_mtime: "2026-01-01T00:00:00Z"
