@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ansible-vault-encrypted
+        name: Check Ansible vault files are encrypted
+        entry: scripts/check-ansible-vault-files.sh
+        language: script
+        files: ^ansible/inventory/.*/group_vars/.*/99-vault\.yml$

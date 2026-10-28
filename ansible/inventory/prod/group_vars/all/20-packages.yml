@@ -1,0 +1,10 @@
+---
+host_journald_max_use: 100M
+host_base_packages:
+  - ca-certificates
+  - curl
+  - git
+  - htop
+  - iptables
+  - python3
+  - python3-apt

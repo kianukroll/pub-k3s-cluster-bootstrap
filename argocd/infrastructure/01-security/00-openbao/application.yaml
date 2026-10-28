@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openbao
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: security
+  source:
+    repoURL: https://github.com/kianukroll/pub-k3s-cluster-bootstrap.git
+    targetRevision: main
+    path: argocd/infrastructure/01-security/00-openbao
+    helm:
+      releaseName: openbao
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openbao
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: openbao-agent-injector-cfg
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true

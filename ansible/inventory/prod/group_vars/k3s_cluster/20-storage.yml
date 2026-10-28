@@ -1,0 +1,3 @@
+---
+# Temporary baseline. Replace with replicated CSI storage before stateful workloads.
+k3s_storage_class: local-path

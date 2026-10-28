@@ -1,0 +1,5 @@
+---
+# Single source of truth for cluster membership.
+k3s_control_plane_hosts:
+  - IN_ANSIBLE_VAULT
+k3s_worker_hosts: []

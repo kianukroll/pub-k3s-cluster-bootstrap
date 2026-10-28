@@ -1,0 +1,220 @@
+---
+- name: Require OpenBao token for auth bootstrap
+  ansible.builtin.assert:
+    that:
+      - openbao_root_token | length > 0
+    fail_msg: Define openbao_root_token in encrypted Ansible Vault variables.
+  no_log: true
+
+- name: Determine OpenBao pod service account
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - get
+      - pod
+      - "{{ openbao_pod }}"
+      - -n
+      - "{{ openbao_namespace }}"
+      - -o
+      - jsonpath={.spec.serviceAccountName}
+  register: openbao_pod_service_account
+  changed_when: false
+
+- name: Allow OpenBao to review Kubernetes service account tokens
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - create
+      - clusterrolebinding
+      - "{{ openbao_token_reviewer_binding }}"
+      - "--clusterrole=system:auth-delegator"
+      - "--serviceaccount={{ openbao_namespace }}:{{ openbao_pod_service_account.stdout }}"
+  register: openbao_token_reviewer_binding_result
+  changed_when: openbao_token_reviewer_binding_result.rc == 0
+  failed_when: openbao_token_reviewer_binding_result.rc not in [0, 1]
+
+- name: Read enabled OpenBao auth methods
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - read -r BAO_TOKEN; export BAO_TOKEN; exec {{ openbao_cli }} auth list -format=json
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  register: openbao_auth_list
+  changed_when: false
+  no_log: true
+
+- name: Enable Kubernetes auth method
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - read -r BAO_TOKEN; export BAO_TOKEN; exec {{ openbao_cli }} auth enable kubernetes
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  when: "'kubernetes/' not in (openbao_auth_list.stdout | from_json)"
+  changed_when: true
+  no_log: true
+
+- name: Read Kubernetes auth backend configuration
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - read -r BAO_TOKEN; export BAO_TOKEN; exec {{ openbao_cli }} read auth/kubernetes/config -format=json
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  register: openbao_auth_config
+  changed_when: false
+  failed_when: openbao_auth_config.rc not in [0, 2]
+  no_log: true
+
+- name: Configure Kubernetes auth backend
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - >-
+        read -r BAO_TOKEN;
+        export BAO_TOKEN;
+        exec {{ openbao_cli }} write auth/kubernetes/config
+        kubernetes_host=https://kubernetes.default.svc:443
+        kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  when: openbao_auth_config.rc == 2
+  changed_when: true
+  no_log: true
+
+- name: Read External Secrets policy
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - read -r BAO_TOKEN; export BAO_TOKEN; exec {{ openbao_cli }} policy read {{ openbao_auth_policy }}
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  register: openbao_policy
+  changed_when: false
+  failed_when: openbao_policy.rc not in [0, 2]
+  no_log: true
+
+- name: Create External Secrets policy
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - >-
+        read -r BAO_TOKEN;
+        export BAO_TOKEN;
+        cat <<'POLICY' | {{ openbao_cli }} policy write {{ openbao_auth_policy }} -
+        path "secret/data/argocd/private-repo" {
+          capabilities = ["read"]
+        }
+        path "secret/metadata/argocd/private-repo" {
+          capabilities = ["read"]
+        }
+        POLICY
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  when: openbao_policy.rc == 2
+  changed_when: true
+  no_log: true
+
+- name: Read External Secrets Kubernetes auth role
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - read -r BAO_TOKEN; export BAO_TOKEN; exec {{ openbao_cli }} read auth/kubernetes/role/{{ openbao_auth_role }} -format=json
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  register: openbao_auth_role_result
+  changed_when: false
+  failed_when: openbao_auth_role_result.rc not in [0, 2]
+  no_log: true
+
+- name: Create External Secrets Kubernetes auth role
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -i
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - sh
+      - -c
+      - >-
+        read -r BAO_TOKEN;
+        export BAO_TOKEN;
+        exec {{ openbao_cli }} write auth/kubernetes/role/{{ openbao_auth_role }}
+        bound_service_account_names={{ openbao_auth_service_account }}
+        bound_service_account_namespaces={{ openbao_auth_namespace }}
+        policies={{ openbao_auth_policy }}
+        ttl=1h
+  args:
+    stdin: "{{ openbao_root_token }}"
+    stdin_add_newline: true
+  when: openbao_auth_role_result.rc == 2
+  changed_when: true
+  no_log: true

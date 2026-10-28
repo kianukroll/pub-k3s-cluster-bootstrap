@@ -1,0 +1,53 @@
+---
+- name: Check OpenBao initialization status
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - "{{ openbao_cli }}"
+      - status
+      - "-format={{ openbao_status_format }}"
+  register: openbao_status
+  changed_when: false
+  failed_when: openbao_status.rc not in [0, 1, 2]
+  no_log: true
+
+- name: Require machine-readable OpenBao status
+  ansible.builtin.assert:
+    that:
+      - openbao_status.stdout | trim | length > 0
+    fail_msg: OpenBao status returned no JSON output.
+  no_log: true
+
+- name: Determine whether OpenBao is initialized
+  ansible.builtin.set_fact:
+    openbao_initialized: "{{ (openbao_status.stdout | from_json).initialized | default(false) | bool }}"
+  no_log: true
+
+- name: Initialize OpenBao only when required
+  ansible.builtin.command:
+    argv:
+      - "{{ openbao_kubectl_bin }}"
+      - exec
+      - -n
+      - "{{ openbao_namespace }}"
+      - "{{ openbao_pod }}"
+      - --
+      - "{{ openbao_cli }}"
+      - operator
+      - init
+      - "-key-shares={{ openbao_shamir_key_shares }}"
+      - "-key-threshold={{ openbao_shamir_key_threshold }}"
+      - "-format={{ openbao_status_format }}"
+  when: not openbao_initialized
+  register: openbao_init
+  changed_when: true
+  no_log: true
+
+- name: Configure OpenBao Kubernetes auth
+  ansible.builtin.include_tasks: auth.yml
+  when: openbao_auth_bootstrap_enabled | bool

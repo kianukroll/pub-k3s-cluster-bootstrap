@@ -1,0 +1,12 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  description: User-facing applications
+  sourceRepos:
+    - https://github.com/kianukroll/pub-k3s-cluster-bootstrap.git
+  destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc

@@ -1,0 +1,124 @@
+---
+- name: Validate Argo CD installation configuration
+  ansible.builtin.assert:
+    that:
+      - argocd_helm_version | length > 0
+      - argocd_chart_version | length > 0
+      - argocd_admin_password_hash | length > 0
+      - argocd_admin_password_mtime | length > 0
+      - argocd_bootstrap_manifest | length > 0
+    fail_msg: "Set the Argo CD Helm and bootstrap configuration before deployment."
+
+- name: Create local source directory
+  ansible.builtin.file:
+    path: /usr/local/src
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download Helm
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-v{{ argocd_helm_version }}-linux-{{ argocd_helm_architecture }}.tar.gz"
+    dest: "/usr/local/src/helm-v{{ argocd_helm_version }}.tar.gz"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Extract Helm
+  ansible.builtin.unarchive:
+    src: "/usr/local/src/helm-v{{ argocd_helm_version }}.tar.gz"
+    dest: /usr/local/src
+    remote_src: true
+    creates: "/usr/local/src/linux-{{ argocd_helm_architecture }}/helm"
+
+- name: Install Helm binary
+  ansible.builtin.copy:
+    src: "/usr/local/src/linux-{{ argocd_helm_architecture }}/helm"
+    dest: /usr/local/bin/helm
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Add Argo CD Helm repository
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/helm
+      - repo
+      - add
+      - argo
+      - https://argoproj.github.io/argo-helm
+      - --force-update
+  changed_when: false
+
+- name: Update Helm repositories
+  ansible.builtin.command:
+    cmd: /usr/local/bin/helm repo update
+  changed_when: false
+
+- name: Install or upgrade Argo CD
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/helm
+      - upgrade
+      - --install
+      - argocd
+      - argo/argo-cd
+      - --namespace
+      - argocd
+      - --create-namespace
+      - --version
+      - "{{ argocd_chart_version }}"
+      - --set-string
+      - "configs.secret.argocdServerAdminPassword={{ argocd_admin_password_hash }}"
+      - --set-string
+      - "configs.secret.argocdServerAdminPasswordMtime={{ argocd_admin_password_mtime }}"
+      - --set-string
+      - "configs.params.server\\.insecure=true"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+  no_log: true
+
+- name: Wait for Argo CD server
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/kubectl
+      - rollout
+      - status
+      - deployment/argocd-server
+      - --namespace
+      - argocd
+      - --timeout=300s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Apply Argo CD root bootstrap application
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/kubectl
+      - delete
+      - application
+      - 00-infrastructure-bootstrap
+      - --namespace
+      - argocd
+      - --ignore-not-found=true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Apply Argo CD root bootstrap application
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/kubectl
+      - apply
+      - --filename
+      - "-"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  args:
+    stdin: "{{ lookup('ansible.builtin.file', argocd_bootstrap_manifest) }}"
+  register: argocd_install_bootstrap_result
+  changed_when: "'created' in argocd_install_bootstrap_result.stdout or 'configured' in argocd_install_bootstrap_result.stdout"

@@ -1,0 +1,21 @@
+---
+nebula_version: v1.11.2
+nebula_interface: nebula1
+nebula_listen_host: 0.0.0.0
+nebula_listen_port: 4242
+nebula_certificate_cidr: 24
+nebula_k3s_api_port: 6443
+nebula_cert_binary: nebula-cert
+nebula_ca_name: K3s-Cluster-CA
+nebula_config_dir: /etc/nebula
+nebula_download_dir: /usr/local/src/nebula
+nebula_lighthouse_ip: IN_ANSIBLE_VAULT
+nebula_lighthouse_public_ip: IN_ANSIBLE_VAULT
+nebula_host_config: IN_ANSIBLE_VAULT
+nebula_architecture:
+  x86_64: amd64
+  aarch64: arm64
+nebula_ca_certificate: "{{ playbook_dir }}/credentials/nebula/ca.crt"
+nebula_ca_key: "{{ playbook_dir }}/credentials/nebula/ca.key"
+nebula_host_certificate: "{{ playbook_dir }}/credentials/nebula/{{ inventory_hostname }}.crt"
+nebula_host_key: "{{ playbook_dir }}/credentials/nebula/{{ inventory_hostname }}.key"

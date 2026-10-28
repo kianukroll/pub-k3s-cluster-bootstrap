@@ -1,0 +1,9 @@
+apiVersion: v2
+name: external-secrets
+version: 0.1.0
+description: External Secrets Operator dependency for the GitOps infrastructure bootstrap
+type: application
+dependencies:
+  - name: external-secrets
+    version: 0.10.7
+    repository: https://charts.external-secrets.io

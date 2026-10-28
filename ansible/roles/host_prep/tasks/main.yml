@@ -1,0 +1,53 @@
+---
+- name: Verify supported operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'Debian'
+    fail_msg: "host_prep currently supports Debian-family hosts only."
+
+- name: Configure APT without recommends
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99norecommends
+    content: |
+      APT::Install-Recommends "0";
+      APT::Install-Suggests "0";
+    mode: '0644'
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ host_base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Disable active swap
+  ansible.builtin.command:
+    cmd: swapoff --all
+  changed_when: false
+  when: host_swap_disabled | bool
+
+- name: Disable swap entries in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*[^#\s]+\s+\S+\s+swap\s+.*)$'
+    replace: '# \1'
+  when: host_swap_disabled | bool
+
+- name: Configure journald disk usage
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: '^#?SystemMaxUse='
+    line: "SystemMaxUse={{ host_journald_max_use }}"
+  notify: Restart journald
+
+- name: Apply kernel parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop: "{{ host_sysctl_settings | dict2items }}"
+
+- name: Clean APT cache
+  ansible.builtin.apt:
+    autoclean: true

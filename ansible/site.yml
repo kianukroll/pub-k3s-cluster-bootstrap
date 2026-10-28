@@ -1,0 +1,77 @@
+---
+- name: Build dynamic cluster inventory
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tags: [always, inventory]
+  tasks:
+    - name: Load Nebula host configuration for bootstrap
+      ansible.builtin.include_vars:
+        dir: "{{ playbook_dir }}/inventory/prod/group_vars/nebula_nodes"
+        name: nebula_group_vars
+
+    - name: Validate central cluster host lists
+      ansible.builtin.assert:
+        that:
+          - k3s_control_plane_hosts | length > 0
+          - (k3s_control_plane_hosts | intersect(k3s_worker_hosts) | length) == 0
+          - (k3s_control_plane_hosts + k3s_worker_hosts) | difference(nebula_group_vars.nebula_host_config.keys() | list) | length == 0
+        fail_msg: "Define non-overlapping k3s_control_plane_hosts and k3s_worker_hosts."
+
+    - name: Register control-plane hosts
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        nebula_ip: "{{ nebula_group_vars.nebula_host_config[item].nebula_ip }}"
+        groups:
+          - nebula_nodes
+          - k3s_cluster
+      loop: "{{ k3s_control_plane_hosts }}"
+
+    - name: Register worker hosts
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        nebula_ip: "{{ nebula_group_vars.nebula_host_config[item].nebula_ip }}"
+        groups:
+          - nebula_nodes
+          - k3s_cluster
+      loop: "{{ k3s_worker_hosts }}"
+
+- name: Prepare cluster hosts
+  hosts: nebula_nodes
+  gather_facts: true
+  roles:
+    - role: host_prep
+      tags: [bootstrap, prep]
+
+- name: Configure Nebula overlay
+  hosts: nebula_nodes
+  gather_facts: false
+  roles:
+    - role: nebula_overlay
+      tags: [bootstrap, nebula, network]
+
+- name: Install K3s sequentially
+  hosts: k3s_cluster
+  serial: 1
+  gather_facts: false
+  roles:
+    - role: k3s_cluster
+      tags: [k3s, cluster]
+
+- name: Install Argo CD
+  hosts: k3s_cluster
+  gather_facts: true
+  roles:
+    - role: argocd_install
+      tags: [argocd, gitops]
+      when: inventory_hostname == k3s_control_plane_hosts[0]
+
+- name: Bootstrap OpenBao
+  hosts: k3s_cluster
+  gather_facts: false
+  roles:
+    - role: openbao_bootstrap
+      tags: [openbao, security]
+      when:
+        - openbao_bootstrap_enabled | bool
+        - inventory_hostname == k3s_control_plane_hosts[0]
