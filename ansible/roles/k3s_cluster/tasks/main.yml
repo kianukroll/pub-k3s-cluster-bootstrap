@@ -1,0 +1,80 @@
+---
+- name: Validate K3s host configuration
+  ansible.builtin.assert:
+    that:
+      - k3s_version | length > 0
+      - k3s_token | length > 0
+      - nebula_ip | length > 0
+      - k3s_control_plane_hosts | length > 0
+      - inventory_hostname in (k3s_control_plane_hosts + k3s_worker_hosts)
+    fail_msg: "Set K3s version, token, node IP and topology variables before deployment."
+
+- name: Wait for initial control plane API
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[k3s_control_plane_hosts[0]].nebula_ip }}"
+    port: "{{ k3s_api_port }}"
+    timeout: 120
+  when: inventory_hostname != k3s_control_plane_hosts[0]
+
+- name: Create K3s configuration directory
+  ansible.builtin.file:
+    path: "{{ k3s_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render K3s configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ k3s_config_dir }}/config.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart K3s
+
+- name: Download pinned K3s installer
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /usr/local/src/k3s-install.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Read installed K3s version
+  ansible.builtin.command: /usr/local/bin/k3s --version
+  register: k3s_installed_version
+  changed_when: false
+  failed_when: false
+
+- name: Install or upgrade K3s to requested version
+  ansible.builtin.command: /usr/local/src/k3s-install.sh
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "{{ 'server' if inventory_hostname in k3s_control_plane_hosts else 'agent' }}"
+  when: k3s_version not in k3s_installed_version.stdout
+  no_log: true
+
+- name: Enable and start K3s
+  ansible.builtin.systemd:
+    name: k3s
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for local K3s API
+  ansible.builtin.wait_for:
+    host: "{{ nebula_ip }}"
+    port: "{{ k3s_api_port }}"
+    timeout: 120
+
+- name: Configure K3s service memory limit
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system/k3s.service.env
+    regexp: '^GOMEMLIMIT='
+    line: "GOMEMLIMIT={{ gomemlimit }}"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart K3s

@@ -1,0 +1,223 @@
+---
+- name: Check local Nebula certificate tool
+  ansible.builtin.command:
+    cmd: "{{ nebula_cert_binary }} --help"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: false
+  no_log: true
+
+- name: Validate Nebula configuration
+  ansible.builtin.assert:
+    that:
+      - nebula_version | length > 0
+      - nebula_lighthouse_ip | length > 0
+      - nebula_lighthouse_public_ip | length > 0
+      - nebula_ip | length > 0
+      - nebula_ca_certificate | length > 0
+      - nebula_ca_key | length > 0
+      - nebula_host_certificate | length > 0
+      - nebula_host_key | length > 0
+    fail_msg: "Set Nebula version, lighthouse values and certificate paths before deployment."
+
+- name: Create local Nebula credentials directory
+  ansible.builtin.file:
+    path: "{{ nebula_ca_certificate | dirname }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Check local Nebula CA files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ nebula_ca_certificate }}"
+    - "{{ nebula_ca_key }}"
+  register: nebula_overlay_ca_files
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Require complete Nebula CA files
+  ansible.builtin.assert:
+    that:
+      - (nebula_overlay_ca_files.results | selectattr('stat.exists', 'equalto', true) | list | length) in [0, 2]
+    fail_msg: Nebula CA certificate and key must exist together.
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+
+- name: Generate Nebula CA when absent
+  ansible.builtin.command:
+    argv:
+      - "{{ nebula_cert_binary }}"
+      - ca
+      - -name
+      - "{{ nebula_ca_name }}"
+      - -out-crt
+      - "{{ nebula_ca_certificate }}"
+      - -out-key
+      - "{{ nebula_ca_key }}"
+    creates: "{{ nebula_ca_certificate }}"
+  when: not nebula_overlay_ca_files.results[0].stat.exists
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+
+- name: Set Nebula CA key permissions
+  ansible.builtin.file:
+    path: "{{ nebula_ca_key }}"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+
+- name: Check local Nebula host certificate and key
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ nebula_host_certificate }}"
+    - "{{ nebula_host_key }}"
+  register: nebula_overlay_host_files
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Require complete Nebula host credentials
+  ansible.builtin.assert:
+    that:
+      - (nebula_overlay_host_files.results | selectattr('stat.exists', 'equalto', true) | list | length) in [0, 2]
+    fail_msg: "Nebula host certificate and key must exist together for {{ inventory_hostname }}."
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Generate Nebula host certificate when absent
+  ansible.builtin.command:
+    argv:
+      - "{{ nebula_cert_binary }}"
+      - sign
+      - -name
+      - "{{ inventory_hostname }}"
+      - -ip
+      - "{{ nebula_ip }}/{{ nebula_certificate_cidr }}"
+      - -ca-crt
+      - "{{ nebula_ca_certificate }}"
+      - -ca-key
+      - "{{ nebula_ca_key }}"
+      - -out-crt
+      - "{{ nebula_host_certificate }}"
+      - -out-key
+      - "{{ nebula_host_key }}"
+  when: not nebula_overlay_host_files.results[0].stat.exists
+  changed_when: not nebula_overlay_host_files.results[0].stat.exists
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Set Nebula host key permissions
+  ansible.builtin.file:
+    path: "{{ nebula_host_key }}"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Create Nebula directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop:
+    - "{{ nebula_config_dir }}"
+    - "{{ nebula_download_dir }}"
+
+- name: Download Nebula release
+  ansible.builtin.get_url:
+    url: "https://github.com/slackhq/nebula/releases/download/{{ nebula_version }}/nebula-linux-{{ nebula_architecture[ansible_facts['architecture']] }}.tar.gz"
+    dest: "{{ nebula_download_dir }}/{{ nebula_version }}.tar.gz"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Install Nebula binary
+  ansible.builtin.unarchive:
+    src: "{{ nebula_download_dir }}/{{ nebula_version }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    creates: /usr/local/bin/nebula
+    mode: '0755'
+
+- name: Install Nebula CA certificate
+  ansible.builtin.copy:
+    src: "{{ nebula_ca_certificate }}"
+    dest: "{{ nebula_config_dir }}/ca.crt"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart nebula
+
+- name: Install Nebula host certificate
+  ansible.builtin.copy:
+    src: "{{ nebula_host_certificate }}"
+    dest: "{{ nebula_config_dir }}/host.crt"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart nebula
+
+- name: Install Nebula host key
+  ansible.builtin.copy:
+    src: "{{ nebula_host_key }}"
+    dest: "{{ nebula_config_dir }}/host.key"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart nebula
+
+- name: Render Nebula configuration
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: "{{ nebula_config_dir }}/config.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart nebula
+
+- name: Install Nebula systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nebula.service
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Nebula Overlay Network
+      Wants=network-online.target
+      After=network-online.target
+      Before=k3s.service
+
+      [Service]
+      ExecStart=/usr/local/bin/nebula -config /etc/nebula/config.yml
+      Restart=always
+      RestartSec=5
+      NoNewPrivileges=true
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Restart nebula
+
+- name: Enable and start Nebula
+  ansible.builtin.systemd:
+    name: nebula
+    state: started
+    enabled: true
+    daemon_reload: true

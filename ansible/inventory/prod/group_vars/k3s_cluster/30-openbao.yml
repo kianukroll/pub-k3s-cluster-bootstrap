@@ -1,0 +1,16 @@
+---
+openbao_namespace: openbao
+openbao_pod: openbao-0
+openbao_cli: bao
+openbao_status_format: json
+openbao_bootstrap_enabled: false
+openbao_auth_bootstrap_enabled: true
+openbao_root_token: IN_ANSIBLE_VAULT
+openbao_auth_role: eso-role
+openbao_auth_policy: eso-policy
+openbao_auth_service_account: external-secrets
+openbao_auth_namespace: external-secrets
+openbao_token_reviewer_binding: openbao-token-reviewer
+openbao_shamir_key_shares: 5
+openbao_shamir_key_threshold: 3
+openbao_kubectl_bin: kubectl

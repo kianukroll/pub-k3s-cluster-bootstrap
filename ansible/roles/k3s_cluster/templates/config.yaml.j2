@@ -1,0 +1,17 @@
+token: {{ k3s_token | to_json }}
+flannel-backend: vxlan
+flannel-iface: {{ k3s_flannel_interface | to_json }}
+node-ip: {{ nebula_ip | to_json }}
+node-external-ip: {{ ansible_default_ipv4.address | to_json }}
+advertise-address: {{ nebula_ip | to_json }}
+tls-san:
+  - {{ nebula_ip | to_json }}
+disable:
+  - traefik
+kubelet-arg:
+  - container-log-max-size=75Mi
+  - container-log-max-files=3
+{% if inventory_hostname == k3s_control_plane_hosts[0] %}cluster-init: true
+{% elif inventory_hostname in k3s_control_plane_hosts %}server: https://{{ hostvars[k3s_control_plane_hosts[0]].nebula_ip }}:{{ k3s_api_port }}
+{% else %}server: https://{{ hostvars[k3s_control_plane_hosts[0]].nebula_ip }}:{{ k3s_api_port }}
+{% endif %}
