@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: "https://github.com/kianukroll/k3s-cluster.git"
     targetRevision: HEAD
-    path: .
+    path: argocd
   destination:
     server: "https://kubernetes.default.svc"
     namespace: default
