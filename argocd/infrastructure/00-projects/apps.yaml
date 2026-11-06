@@ -7,6 +7,7 @@ spec:
   description: User-facing applications
   sourceRepos:
     - https://github.com/kianukroll/pub-k3s-cluster-bootstrap.git
+    - https://github.com/kianukroll/k3s-cluster.git
   destinations:
     - namespace: '*'
       server: https://kubernetes.default.svc
